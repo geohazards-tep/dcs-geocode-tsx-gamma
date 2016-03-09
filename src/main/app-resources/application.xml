@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="us-ascii"?>
+<application xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" id="srtmdem">
+  <jobTemplates>
+
+    <jobTemplate id="geocode">
+      <streamingExecutable>/application/geocode/run</streamingExecutable>
+      <defaultParameters>
+      </defaultParameters>
+      <defaultJobconf>
+      </defaultJobconf>
+    </jobTemplate>
+  </jobTemplates>
+  <workflow id="geocode_tsx_gamma" title="TerraSAR-X geocoding with GAMMA" abstract="TBW">
+    <workflowVersion>1.0</workflowVersion>
+    <node id="node_geocode">
+      <job id="geocode" />
+      <sources>
+        <source scope="runtime" id="tsx_ref" title="TerraSAR-X SLC product catalogue entry(ies)" abstract="Define the TerraSAR-X product(s). The product(s) is passed by references to catalogue entries" refid="string:list">https://data2.terradue.com/eop/scihub/dataset/search?uid=S1A_IW_SLC__1SSV_20141003T122533_20141003T122600_002665_002F81_62D8</source>
+      </sources>
+      <parameters>
+      </parameters>
+    </node>
+  </workflow>
+</application>

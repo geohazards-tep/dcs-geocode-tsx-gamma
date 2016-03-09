@@ -1,0 +1,212 @@
+#! /bin/bash
+
+# source the ciop functions (e.g. ciop-log)
+source ${ciop_job_include}
+set -x
+# define the exit codes
+SUCCESS=0
+ERR_PAR=2
+ERR_MOSAIC=3
+ERR_MULTILOOK=4
+
+# create a TMPDIR in /tmp to use GAMMA
+UUIDTMP="/tmp/`uuidgen`"
+mkdir -p ${UUIDTMP}
+export TMPDIR=${UUIDTMP}
+chmod 777 ${UUIDTMP}
+
+export PATH=/opt/gamma/DIFF/bin:/opt/gamma/DISP/bin/:/opt/gamma/ISP/bin:/opt/gamma/LAT/bin:$PATH
+
+# add a trap to exit gracefully
+function cleanExit ()
+{
+  local retval=$?
+  local msg=""
+  case "$retval" in
+    $SUCCESS) msg="Processing successfully concluded";;
+    $ERR_PAR) msg="Failed to ingest the Sentinel-1 product with GAMMA";;
+    $ERR_MOSAIC) msg="Failed to create the S1 SLC mosaic";;
+    $ERR_MULTILOOK) msg="Failed to multi look";;
+  *) msg="Unknown error";;
+  esac
+
+  [ "$retval" != "0" ] && ciop-log "ERROR" "Error $retval - $msg, processing aborted" || ciop-log "INFO" "$msg"
+  exit $retval
+}
+
+trap cleanExit EXIT
+
+
+pwd > path
+path=$(awk '{print $1}' path)
+inSLC=${path%/*}"/DATA" 
+
+output=${path%/*}"/OUTPUT" 
+
+inDEM=${path%/*}"/DEM" 
+DEM="bbc9c3e1-ae04-4091-9274-949136e3f762.dem"
+rm path
+
+tsx_header=TSX1_SAR__SSC______SM_D_SRA_20090314T052530_20090314T052538.xml
+hh_cos=IMAGE_HH_SRA_stripFar_007.cos
+vv_cos=IMAGE_VV_SRA_stripFar_007.cos
+
+function ingest() {
+ 
+ local header=$1
+ 
+ for polarization in $( echo 'HH' 'VV' )
+ do
+   xpath="//level1Product/productComponents/imageData[polLayer/text()=\"${polarization}\"]/file/location/filename/text()"
+   cos=$( dirname ${header})/$( xmllint -xpath ${xpath} ${header} )
+   par_TX_SLC \
+    ${header} \
+    ${cos} \
+    ${TMPDIR}/${polarization}.slc.par \
+    ${TMPDIR}/${polarization}.slc \
+    ${polarization} &> ${TMPDIR}/par_TX_SLC_${polarization}.log || return 4 
+  done
+
+}
+
+ingest \
+  $inSLC/${tsx_header} || exit $?
+
+function mlook() {
+  
+  for polarization in $( echo 'HH' 'VV' )
+  do
+    multi_look \
+      ${TMPDIR}/${polarization}.slc \
+      ${TMPDIR}/${polarization}.slc.par \
+      ${TMPDIR}/${polarization}.mli \
+      ${TMPDIR}/${polarization}.mli.par 6 4 &> ${TMPDIR}/multi_look_${polarization}.log || return 6
+  done
+}
+
+
+
+
+mlook || exit 6
+
+#multi_look \
+#  $output/HH.slc \
+#  $output/HH.slc.par \
+#  $output/HH.mli \
+#  $output/HH.mli.par 6 4 &> ${output}/multi_look_HH.log || exit 6 
+
+#multi_look \
+#  $output/VV.slc \
+#  $output/VV.slc.par \
+#  $output/VV.mli \
+#  $output/VV.mli.par 6 4 &> ${output}/multi_look_VV.log || exit 7
+
+function radcm() {
+
+  for polarization in $( echo 'HH' 'VV' )
+  do
+    radcal_MLI \
+      ${TMPDIR}/${polarization}.mli \
+      ${TMPDIR}/${polarization}.slc.par - \
+      ${TMPDIR}/${polarization}.cmli - 0 0 1 0.0 - &> ${TMPDIR}/radcal_MLI_${polarization}.lop || return 8
+  done
+} 
+
+radcm || exit 8
+
+#radcal_MLI \
+#  $output/HH.mli \
+#  $output/HH.slc.par - \
+#  $output/HH.cmli - 0 0 1 0.0 - &> ${output}/radcal_MLI_HH.log || exit 8
+
+#radcal_MLI \
+#  $output/VV.mli \
+#  $output/VV.slc.par - \
+#  $output/VV.cmli - 0 0 1 0.0 - &> ${output}/radcal_MLI_VV.log || exit 9
+
+gec_map \
+  ${TMPDIR}/HH.mli.par - \
+  ${TMPDIR}/${DEM}.par 0.0 \
+  ${TMPDIR}/DEM.dem_seg.par \
+  ${TMPDIR}/DEM.lookup_table 20 20 &> ${TMPDIR}/gec_map.log || exit 10
+
+width=$( cat $output/DEM.dem_seg.par | grep width | tr  -s " " | cut -d " " -f 2 )
+range_samples=$( cat $output/HH.mli.par | grep range_samples | tr  -s " " | cut -d " " -f 2 )
+
+function geocodeb() {
+ 
+  local r_samples=$1
+  local w=$2 
+
+  for polarization in $( echo 'HH' 'VV' )
+  do
+    geocode_back \
+      ${TMPDIR}/${polarization}.cmli \
+      ${r_samples} \
+      ${TMPDIR}/DEM.lookup_table \
+      ${TMPDIR}/${polarization}.cmli.geocoded ${w} - 0 0 &> ${TMPDIR}/geocode_back_${polarization}.log || return 10
+   done
+
+}
+
+geocodeb ${range_samples} ${width} || exit 10
+
+#geocode_back \
+#  $output/HH.cmli \
+#  ${range_samples} \
+#  $output/DEM.lookup_table \
+#  $output/HH.cmli.geocoded ${width} - 0 0 &> ${output}/geocode_back_HH.log || exit 11
+
+#geocode_back \
+#  $output/VV.cmli \
+#  ${range_samples} \
+#  $output/DEM.lookup_table \
+#  $output/VV.cmli.geocoded ${width} - 0 0 &> ${output}/geocode_back_VV.log  || exit 12
+
+ratio ${TMPDIR}/HH.cmli ${TMPDIR}/VV.cmli ${TMPDIR}/HHVV ${range_samples} &> ${TMPDIR}/ratio.log || exit 13
+
+function ras() {
+
+  local r_samples=$1
+
+  for polarization in $( echo 'HH' 'VV' )
+  do
+    raspwr \
+      ${TMPDIR}/${polarization}.cmli \
+      ${range_samples} \
+      1 0 1 1 - - - \
+      ${TMPDIR}/${polarization}.cmli.ras &> ${TMPDIR}/raspwr_${polarization}.log
+  done
+}
+
+ras
+#raspwr $output/HH.cmli \
+#  ${range_samples} \
+#  1 0 1 1 - - - \
+#  $output/HH.cmli.ras  &> ${output}/raspwr_HH.log || exit 14
+
+#raspwr \
+#  $output/VV.cmli \
+#  ${range_samples} \
+#  1 0 1 1 - - - \
+#  $output/VV.cmli.ras &> ${output}/raspwr_VV.log || exit 15
+
+raspwr \
+  ${TMPDIR}/HHVV \
+  ${range_samples} \
+  1 0 1 1 - - - \
+  ${TMPDIR}/HHVV.cmli.ras &> ${TMPDIR}/raspwr_HHVV.log || exit 16
+
+ras_to_rgb \
+  ${TMPDIR}/HH.cmli.ras \
+  ${TMPDIR}/VV.cmli.ras \
+  ${TMPDIR}/HHVV.cmli.ras \
+  ${TMPDIR}/RGB.bmp &> ${TMPDIR}/ras_to_rgb.log  || exit 17 
+
+geocode_back \
+  ${TMPDIR}/RGB.bmp \
+  ${range_samples} \
+  ${TMPDIR}/DEM.lookup_table \
+  ${TMPDIR}/RGB.geocoded.utm.bmp \
+  ${width} - 0 2 &> ${TMPDIR}/geocode_back_RGB.log  || exit 18
+
