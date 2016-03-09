@@ -27,6 +27,7 @@
       <defaultParameters>
       </defaultParameters>
       <defaultJobconf>
+        <property id="ciop.job.max.tasks">1</property>
       </defaultJobconf>
     </jobTemplate>
   </jobTemplates>
@@ -35,14 +36,14 @@
     <node id="node_dummy">
       <job id="dummy" />
       <sources>
-        <source id="Level0_ref" title="TerraSAR-X SLC product catalogue entry" abstract="Define the TerraSAR-Xproduct. The product is passed with a reference its catalogue entry" refid="string:list" scope="runtime">https://data2.terradue.com/eop/scihub/dataset/search?uid=S1A_IW_SLC__1SSV_20141003T122533_20141003T122600_002665_002F81_62D8</source>
+        <source id="Level0_ref" title="TerraSAR-X SLC product catalogue entry" abstract="Define the TerraSAR-Xproduct. The product is passed with a reference its catalogue entry" refid="string:list" scope="runtime">https://data2.terradue.com/eop/noa-terrasar-x/dataset/search?uid=TSX1_SAR__SSC______SM_S_SRA_20130621T042929_20130621T042933</source>
       </sources>
       <parameters />
     </node>
     <node id="node_dem">
       <job id="dem" />
       <sources>
-        <source id="Level0_ref" title="TerraSAR-X SLC product catalogue entry" abstract="Define the TerraSAR-X product The product is passed with a reference its catalogue entry" refid="string:list" scope="runtime">https://data2.terradue.com/eop/scihub/dataset/search?uid=S1A_IW_SLC__1SSV_20141003T122533_20141003T122600_002665_002F81_62D8</source>
+        <source id="Level0_ref" title="TerraSAR-X SLC product catalogue entry" abstract="Define the TerraSAR-X product The product is passed with a reference its catalogue entry" refid="string:list" scope="runtime">https://data2.terradue.com/eop/noa-terrasar-x/dataset/search?uid=TSX1_SAR__SSC______SM_S_SRA_20130621T042929_20130621T042933</source>
       </sources>
       <parameters />
     </node>
@@ -51,7 +52,6 @@
      <sources>
         <source refid="wf:node">node_dem</source>
         <source refid="wf:node">node_dummy</source>
-      </sources>
       </sources>
       <parameters>
       </parameters>

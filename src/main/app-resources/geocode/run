@@ -36,21 +36,6 @@ function cleanExit ()
 
 trap cleanExit EXIT
 
-
-pwd > path
-path=$(awk '{print $1}' path)
-inSLC=${path%/*}"/DATA" 
-
-output=${path%/*}"/OUTPUT" 
-
-inDEM=${path%/*}"/DEM" 
-DEM="bbc9c3e1-ae04-4091-9274-949136e3f762.dem"
-rm path
-
-tsx_header=TSX1_SAR__SSC______SM_D_SRA_20090314T052530_20090314T052538.xml
-hh_cos=IMAGE_HH_SRA_stripFar_007.cos
-vv_cos=IMAGE_VV_SRA_stripFar_007.cos
-
 function ingest() {
  
  local header=$1
@@ -69,9 +54,6 @@ function ingest() {
 
 }
 
-ingest \
-  $inSLC/${tsx_header} || exit $?
-
 function mlook() {
   
   for polarization in $( echo 'HH' 'VV' )
@@ -84,23 +66,6 @@ function mlook() {
   done
 }
 
-
-
-
-mlook || exit 6
-
-#multi_look \
-#  $output/HH.slc \
-#  $output/HH.slc.par \
-#  $output/HH.mli \
-#  $output/HH.mli.par 6 4 &> ${output}/multi_look_HH.log || exit 6 
-
-#multi_look \
-#  $output/VV.slc \
-#  $output/VV.slc.par \
-#  $output/VV.mli \
-#  $output/VV.mli.par 6 4 &> ${output}/multi_look_VV.log || exit 7
-
 function radcm() {
 
   for polarization in $( echo 'HH' 'VV' )
@@ -110,33 +75,12 @@ function radcm() {
       ${TMPDIR}/${polarization}.slc.par - \
       ${TMPDIR}/${polarization}.cmli - 0 0 1 0.0 - &> ${TMPDIR}/radcal_MLI_${polarization}.lop || return 8
   done
-} 
-
-radcm || exit 8
-
-#radcal_MLI \
-#  $output/HH.mli \
-#  $output/HH.slc.par - \
-#  $output/HH.cmli - 0 0 1 0.0 - &> ${output}/radcal_MLI_HH.log || exit 8
-
-#radcal_MLI \
-#  $output/VV.mli \
-#  $output/VV.slc.par - \
-#  $output/VV.cmli - 0 0 1 0.0 - &> ${output}/radcal_MLI_VV.log || exit 9
-
-gec_map \
-  ${TMPDIR}/HH.mli.par - \
-  ${TMPDIR}/${DEM}.par 0.0 \
-  ${TMPDIR}/DEM.dem_seg.par \
-  ${TMPDIR}/DEM.lookup_table 20 20 &> ${TMPDIR}/gec_map.log || exit 10
-
-width=$( cat $output/DEM.dem_seg.par | grep width | tr  -s " " | cut -d " " -f 2 )
-range_samples=$( cat $output/HH.mli.par | grep range_samples | tr  -s " " | cut -d " " -f 2 )
+}
 
 function geocodeb() {
- 
+
   local r_samples=$1
-  local w=$2 
+  local w=$2
 
   for polarization in $( echo 'HH' 'VV' )
   do
@@ -148,22 +92,6 @@ function geocodeb() {
    done
 
 }
-
-geocodeb ${range_samples} ${width} || exit 10
-
-#geocode_back \
-#  $output/HH.cmli \
-#  ${range_samples} \
-#  $output/DEM.lookup_table \
-#  $output/HH.cmli.geocoded ${width} - 0 0 &> ${output}/geocode_back_HH.log || exit 11
-
-#geocode_back \
-#  $output/VV.cmli \
-#  ${range_samples} \
-#  $output/DEM.lookup_table \
-#  $output/VV.cmli.geocoded ${width} - 0 0 &> ${output}/geocode_back_VV.log  || exit 12
-
-ratio ${TMPDIR}/HH.cmli ${TMPDIR}/VV.cmli ${TMPDIR}/HHVV ${range_samples} &> ${TMPDIR}/ratio.log || exit 13
 
 function ras() {
 
@@ -179,34 +107,73 @@ function ras() {
   done
 }
 
-ras
-#raspwr $output/HH.cmli \
-#  ${range_samples} \
-#  1 0 1 1 - - - \
-#  $output/HH.cmli.ras  &> ${output}/raspwr_HH.log || exit 14
+function main () {
 
-#raspwr \
-#  $output/VV.cmli \
-#  ${range_samples} \
-#  1 0 1 1 - - - \
-#  $output/VV.cmli.ras &> ${output}/raspwr_VV.log || exit 15
+  while read input
+  do
+    enclosure="$( opensearch-client ${input} enclosure )"
+    local_input="$( ciop-copy -z -o $TMPDIR ${enclosure} )"
 
-raspwr \
-  ${TMPDIR}/HHVV \
-  ${range_samples} \
-  1 0 1 1 - - - \
-  ${TMPDIR}/HHVV.cmli.ras &> ${TMPDIR}/raspwr_HHVV.log || exit 16
+    leader="$( tar tfz ${local_input} | grep "\.xml$" | sed 's#.*/\(.*\)#\1#g' | grep "^T.*\.xml" )"
+   
+    leader_path="$( tar tfz ${local_input} | grep ${leader} )"
 
-ras_to_rgb \
-  ${TMPDIR}/HH.cmli.ras \
-  ${TMPDIR}/VV.cmli.ras \
-  ${TMPDIR}/HHVV.cmli.ras \
-  ${TMPDIR}/RGB.bmp &> ${TMPDIR}/ras_to_rgb.log  || exit 17 
+    # extract leader file
+    tar -xzOf ${local_input} ${leader_path} > ${TMPDIR}/${leader}
+  
+    ingest \
+      ${TMPDIR}/${leader} || return $?
 
-geocode_back \
-  ${TMPDIR}/RGB.bmp \
-  ${range_samples} \
-  ${TMPDIR}/DEM.lookup_table \
-  ${TMPDIR}/RGB.geocoded.utm.bmp \
-  ${width} - 0 2 &> ${TMPDIR}/geocode_back_RGB.log  || exit 18
+    mlook || return $? 
 
+    radcm || return $?
+
+    gec_map \
+      ${TMPDIR}/HH.mli.par - \
+      ${TMPDIR}/${DEM}.par 0.0 \
+      ${TMPDIR}/DEM.dem_seg.par \
+      ${TMPDIR}/DEM.lookup_table 20 20 &> ${TMPDIR}/gec_map.log || return $?
+
+      width=$( cat $output/DEM.dem_seg.par | grep width | tr  -s " " | cut -d " " -f 2 )
+      range_samples=$( cat $output/HH.mli.par | grep range_samples | tr  -s " " | cut -d " " -f 2 )
+
+      geocodeb ${range_samples} ${width} || return $?
+
+    ratio \
+      ${TMPDIR}/HH.cmli \
+      ${TMPDIR}/VV.cmli \
+      ${TMPDIR}/HHVV \
+      ${range_samples} &> ${TMPDIR}/ratio.log || return $?
+
+    ras
+
+    raspwr \
+      ${TMPDIR}/HHVV \
+      ${range_samples} \
+      1 0 1 1 - - - \
+      ${TMPDIR}/HHVV.cmli.ras &> ${TMPDIR}/raspwr_HHVV.log || return $?
+
+    ras_to_rgb \
+      ${TMPDIR}/HH.cmli.ras \
+      ${TMPDIR}/VV.cmli.ras \
+      ${TMPDIR}/HHVV.cmli.ras \
+      ${TMPDIR}/RGB.bmp &> ${TMPDIR}/ras_to_rgb.log || return $? 
+
+    geocode_back \
+      ${TMPDIR}/RGB.bmp \
+      ${range_samples} \
+      ${TMPDIR}/DEM.lookup_table \
+      ${TMPDIR}/RGB.geocoded.utm.bmp \
+      ${width} - 0 2 &> ${TMPDIR}/geocode_back_RGB.log || return $?
+
+  done
+}
+
+# retrieve the DEM
+mkdir -p ${TMPDIR}/workdir/dem
+wps_result="$( ciop-browseresults -r ${CIOP_WF_RUN_ID} -j node_dem -w | tr -d '\r' | tr '\n' ';' | cut -d ";" -f 1)"
+# extract the result URL
+curl -L -o ${TMPDIR}/workdir/dem/dem.tgz "${wps_result}" 2> /dev/null
+tar xzf ${TMPDIR}/workdir/dem/dem.tgz -C ${TMPDIR}/workdir/dem/
+
+cat | main || exit $?
