@@ -30,6 +30,9 @@ function cleanExit ()
   *) msg="Unknown error";;
   esac
 
+  # clean up working space
+  rm -fr ${TMPDIR}
+
   [ "$retval" != "0" ] && ciop-log "ERROR" "Error $retval - $msg, processing aborted" || ciop-log "INFO" "$msg"
   exit $retval
 }
@@ -128,32 +131,43 @@ function main () {
 
   while read input
   do
+ 
     [[ ${input} == *"response.xml"* ]] && continue 
-   
+  
+    ciop-log "INFO" "Retrieve $( basename ${input} )" 
     enclosure="$( opensearch-client ${input} enclosure )"
     local_input="$( ciop-copy -z -o $TMPDIR ${enclosure} )"
 
-  
+    ciop-log "INFO" "Ingesting TSX"  
     ingest \
       ${local_input} || return $?
 
+    ciop-log "INFO" "Calculate a multi-look intensity (MLI) image from an SLC image"
     mlook || return $? 
 
+    ciop-log "INFO" "Radiometric calibration for multi-look intensity (MLI) data"
     radcm || return $?
 
     read -a pol_array <<<$POLARIZATION
+    ciop-log "INFO" "Calculate geocoding lookup table for ellipsoid correction of slant-range images" 
+    
+    dem_seg_par="$( dirname ${DEM_PAR} )/DEM.dem_seg.par"
+ 
     gec_map \
       ${TMPDIR}/${pol_array[0]}.mli.par - \
       ${DEM_PAR} 0.0 \
-      $( dirname ${DEM_PAR} )/DEM.dem_seg.par \
+      ${dem_seg_par} \
       ${TMPDIR}/DEM.lookup_table 20 20 &> ${TMPDIR}/gec_map.log || return $?
 
-      width=$( cat $output/DEM.dem_seg.par | grep width | tr  -s " " | cut -d " " -f 2 )
-      range_samples=$( cat $output/${pol_array[0]}.mli.par | grep range_samples | tr  -s " " | cut -d " " -f 2 )
+      width=$( cat ${dem_seg_par} | grep width | tr  -s " " | cut -d " " -f 2 )
+      range_samples=$( cat ${TMPDIR}/${pol_array[0]}.mli.par | grep range_samples | tr  -s " " | cut -d " " -f 2 )
 
+    ciop-log "INFO" "Geocoding of image data using lookup table values"
       geocodeb ${range_samples} ${width} || return $?
 
     [ ${#pol_array[@]} == 2 ] && {   
+      
+      ciop-log "INFO" "Estimate ratio of image data values"
       ratio \
         ${TMPDIR}/${pol_array[0]}.cmli \
         ${TMPDIR}/${pol_array[1]}.cmli \
@@ -161,45 +175,57 @@ function main () {
         ${range_samples} &> ${TMPDIR}/ratio.log || return $?
     }
 
+    ciop-log "INFO" "Generate 8-bit greyscale raster image of intensity data"
     ras
 
     [ ${#pol_array[@]} == 2 ] && {
       # dual polarization, process an RGB image
+      ciop-log "INFO" "Generate 8-bit greyscale raster image of intensity data"
       raspwr \
         ${TMPDIR}/${pol_array[0]}${pol_array[1]} \
         ${range_samples} \
         1 0 1 1 - - - \
         ${TMPDIR}/${pol_array[0]}${pol_array[1]}.cmli.ras &> ${TMPDIR}/raspwr_${pol_array[0]}${pol_array[1]}.log || return $?
 
+      ciop-log "INFO" "Combine 3 raster images into a composite 24-bit RGB"
       ras_to_rgb \
         ${TMPDIR}/${pol_array[0]}.cmli.ras \
         ${TMPDIR}/${pol_array[1]}.cmli.ras \
         ${TMPDIR}/${pol_array[0]}${pol_array[1]}.cmli.ras \
         ${TMPDIR}/RGB.bmp &> ${TMPDIR}/ras_to_rgb.log || return $? 
 
+      ciop-log "INFO" "Geocoding of image data using lookup table values"
       geocode_back \
         ${TMPDIR}/RGB.bmp \
         ${range_samples} \
         ${TMPDIR}/DEM.lookup_table \
         ${TMPDIR}/RGB.geocoded.bmp \
         ${width} - 0 2 &> ${TMPDIR}/geocode_back_RGB.log || return $?
+     
+      ciop-publish -m ${TMPDIR}/RGB.geocoded.bmp
+
     } || {
       # it's a single polarization product, process it as single band image
+      ciop-log "INFO" "Multi-looking, left/right flip, and format conversion"
       ras_ras \
         ${TMPDIR}/${pol_array[0]}.cmli.ras \
         ${TMPDIR}/GRAY.bmp &> ${TMPDIR}/ras_to_ras.log || return $?
       
+      ciop-log "INFO" "Geocoding of image data using lookup table values"
       geocode_back \
         ${TMPDIR}/GRAY.bmp \
         ${range_samples} \
         ${TMPDIR}/DEM.lookup_table \
-        ${TMPDIR}/GRAY.geo.bmp \
-        ${width} - 0 2 &> ${TMPDIR}/geocode_back_GRAY.log || return $? - 0 2
+        ${TMPDIR}/${pol_array[0]}.geo.bmp \
+        ${width} - 0 2 &> ${TMPDIR}/geocode_back_${pol_array[0]}.log || return $? - 0 2
      
+      ciop-publish -m ${TMPDIR}/${pol_array[0]}.geo.bmp
     }
   done
+
 }
 
+ciop-log "INFO" "Retrieving DEM"
 # retrieve the DEM
 mkdir -p ${TMPDIR}/workdir/dem
 wps_result="$( ciop-browseresults -r ${CIOP_WF_RUN_ID} -j node_dem -w | tr -d '\r' | tr '\n' ';' | cut -d ";" -f 1)"
@@ -210,6 +236,7 @@ tar xzf ${TMPDIR}/workdir/dem/dem.tgz -C ${TMPDIR}/workdir/dem/
 export DEM="$( find $TMPDIR/workdir/dem -name "*.dem" )"
 export DEM_PAR="$( find $TMPDIR/workdir/dem -name "*.dem.par" )"
 
+# GAMMA wants to write here:
 chmod -R 777 ${TMPDIR}/workdir
 
 cat | main || exit $?
