@@ -38,14 +38,29 @@ trap cleanExit EXIT
 
 function ingest() {
  
- local header=$1
+ local input=$1
+ local xpath="//level1Product/productComponents/imageData/polLayer/text()"
+  
+ local leader="$( tar tfz ${input} | grep "\.xml$" | sed 's#.*/\(.*\)#\1#g' | grep "^T.*\.xml" )"
+ local leader_path="$( tar tfz ${input} | grep ${leader} )"
+
+ # extract leader file
+ tar -xzOf ${input} ${leader_path} > ${TMPDIR}/${leader}
+
+ # export the polarization list
+ export POLARIZATION="$( xmllint -xpath ${xpath} ${leader} | sed -r 's/(.{2})/\1 /g' )"
  
- for polarization in $( echo 'HH' 'VV' )
+ for polarization in ${POLARIZATION}
  do
    xpath="//level1Product/productComponents/imageData[polLayer/text()=\"${polarization}\"]/file/location/filename/text()"
-   cos=$( dirname ${header})/$( xmllint -xpath ${xpath} ${header} )
+   cos=$( dirname ${leader})/$( xmllint -xpath ${xpath} ${leader} )
+  
+   cos_path="$( tar tfz ${input} | grep ${cos} )" 
+   # extract the cos .file
+   tar -xzOf ${input} ${cos_path} > ${TMPDIR}/${cos}
+
    par_TX_SLC \
-    ${header} \
+    ${leader} \
     ${cos} \
     ${TMPDIR}/${polarization}.slc.par \
     ${TMPDIR}/${polarization}.slc \
@@ -56,7 +71,7 @@ function ingest() {
 
 function mlook() {
   
-  for polarization in $( echo 'HH' 'VV' )
+  for polarization in ${POLARIZATION}
   do
     multi_look \
       ${TMPDIR}/${polarization}.slc \
@@ -68,7 +83,7 @@ function mlook() {
 
 function radcm() {
 
-  for polarization in $( echo 'HH' 'VV' )
+  for polarization in ${POLARIZATION}
   do
     radcal_MLI \
       ${TMPDIR}/${polarization}.mli \
@@ -82,7 +97,7 @@ function geocodeb() {
   local r_samples=$1
   local w=$2
 
-  for polarization in $( echo 'HH' 'VV' )
+  for polarization in ${POLARIZATION}
   do
     geocode_back \
       ${TMPDIR}/${polarization}.cmli \
@@ -97,7 +112,7 @@ function ras() {
 
   local r_samples=$1
 
-  for polarization in $( echo 'HH' 'VV' )
+  for polarization in ${POLARIZATION}
   do
     raspwr \
       ${TMPDIR}/${polarization}.cmli \
@@ -109,63 +124,79 @@ function ras() {
 
 function main () {
 
+  cd ${TMPDIR}
+
   while read input
   do
+    [[ ${input} == *"response.xml"* ]] && continue 
+   
     enclosure="$( opensearch-client ${input} enclosure )"
     local_input="$( ciop-copy -z -o $TMPDIR ${enclosure} )"
 
-    leader="$( tar tfz ${local_input} | grep "\.xml$" | sed 's#.*/\(.*\)#\1#g' | grep "^T.*\.xml" )"
-   
-    leader_path="$( tar tfz ${local_input} | grep ${leader} )"
-
-    # extract leader file
-    tar -xzOf ${local_input} ${leader_path} > ${TMPDIR}/${leader}
   
     ingest \
-      ${TMPDIR}/${leader} || return $?
+      ${local_input} || return $?
 
     mlook || return $? 
 
     radcm || return $?
 
+    read -a pol_array <<<$POLARIZATION
     gec_map \
-      ${TMPDIR}/HH.mli.par - \
-      ${TMPDIR}/${DEM}.par 0.0 \
-      ${TMPDIR}/DEM.dem_seg.par \
+      ${TMPDIR}/${pol_array[0]}.mli.par - \
+      ${DEM_PAR} 0.0 \
+      $( dirname ${DEM_PAR} )/DEM.dem_seg.par \
       ${TMPDIR}/DEM.lookup_table 20 20 &> ${TMPDIR}/gec_map.log || return $?
 
       width=$( cat $output/DEM.dem_seg.par | grep width | tr  -s " " | cut -d " " -f 2 )
-      range_samples=$( cat $output/HH.mli.par | grep range_samples | tr  -s " " | cut -d " " -f 2 )
+      range_samples=$( cat $output/${pol_array[0]}.mli.par | grep range_samples | tr  -s " " | cut -d " " -f 2 )
 
       geocodeb ${range_samples} ${width} || return $?
 
-    ratio \
-      ${TMPDIR}/HH.cmli \
-      ${TMPDIR}/VV.cmli \
-      ${TMPDIR}/HHVV \
-      ${range_samples} &> ${TMPDIR}/ratio.log || return $?
+    [ ${#pol_array[@]} == 2 ] && {   
+      ratio \
+        ${TMPDIR}/${pol_array[0]}.cmli \
+        ${TMPDIR}/${pol_array[1]}.cmli \
+        ${TMPDIR}/${pol_array[0]}${pol_array[1]} \
+        ${range_samples} &> ${TMPDIR}/ratio.log || return $?
+    }
 
     ras
 
-    raspwr \
-      ${TMPDIR}/HHVV \
-      ${range_samples} \
-      1 0 1 1 - - - \
-      ${TMPDIR}/HHVV.cmli.ras &> ${TMPDIR}/raspwr_HHVV.log || return $?
+    [ ${#pol_array[@]} == 2 ] && {
+      # dual polarization, process an RGB image
+      raspwr \
+        ${TMPDIR}/${pol_array[0]}${pol_array[1]} \
+        ${range_samples} \
+        1 0 1 1 - - - \
+        ${TMPDIR}/${pol_array[0]}${pol_array[1]}.cmli.ras &> ${TMPDIR}/raspwr_${pol_array[0]}${pol_array[1]}.log || return $?
 
-    ras_to_rgb \
-      ${TMPDIR}/HH.cmli.ras \
-      ${TMPDIR}/VV.cmli.ras \
-      ${TMPDIR}/HHVV.cmli.ras \
-      ${TMPDIR}/RGB.bmp &> ${TMPDIR}/ras_to_rgb.log || return $? 
+      ras_to_rgb \
+        ${TMPDIR}/${pol_array[0]}.cmli.ras \
+        ${TMPDIR}/${pol_array[1]}.cmli.ras \
+        ${TMPDIR}/${pol_array[0]}${pol_array[1]}.cmli.ras \
+        ${TMPDIR}/RGB.bmp &> ${TMPDIR}/ras_to_rgb.log || return $? 
 
-    geocode_back \
-      ${TMPDIR}/RGB.bmp \
-      ${range_samples} \
-      ${TMPDIR}/DEM.lookup_table \
-      ${TMPDIR}/RGB.geocoded.utm.bmp \
-      ${width} - 0 2 &> ${TMPDIR}/geocode_back_RGB.log || return $?
-
+      geocode_back \
+        ${TMPDIR}/RGB.bmp \
+        ${range_samples} \
+        ${TMPDIR}/DEM.lookup_table \
+        ${TMPDIR}/RGB.geocoded.bmp \
+        ${width} - 0 2 &> ${TMPDIR}/geocode_back_RGB.log || return $?
+    } || {
+      # it's a single polarization product, process it as single band image
+      ras_ras \
+        ${TMPDIR}/${pol_array[0]}.cmli.ras \
+        ${TMPDIR}/GRAY.bmp &> ${TMPDIR}/ras_to_ras.log || return $?
+      
+      geocode_back \
+        ${TMPDIR}/GRAY.bmp \
+        ${range_samples} \
+        ${TMPDIR}/DEM.lookup_table \
+        ${TMPDIR}/GRAY.geo.bmp \
+        ${width} - 0 2 &> ${TMPDIR}/geocode_back_GRAY.log || return $? - 0 2
+     
+    }
   done
 }
 
@@ -175,5 +206,10 @@ wps_result="$( ciop-browseresults -r ${CIOP_WF_RUN_ID} -j node_dem -w | tr -d '\
 # extract the result URL
 curl -L -o ${TMPDIR}/workdir/dem/dem.tgz "${wps_result}" 2> /dev/null
 tar xzf ${TMPDIR}/workdir/dem/dem.tgz -C ${TMPDIR}/workdir/dem/
+
+export DEM="$( find $TMPDIR/workdir/dem -name "*.dem" )"
+export DEM_PAR="$( find $TMPDIR/workdir/dem -name "*.dem.par" )"
+
+chmod -R 777 ${TMPDIR}/workdir
 
 cat | main || exit $?
