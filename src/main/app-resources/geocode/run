@@ -5,9 +5,16 @@ source ${ciop_job_include}
 set -x
 # define the exit codes
 SUCCESS=0
-ERR_PAR=2
-ERR_MOSAIC=3
+ERR_INGEST=2
 ERR_MULTILOOK=4
+ERR_RADCM=6
+ERR_GEOCODEB=8
+ERR_RAS=10
+ERR_GECMAP=12
+ERR_RATIO=14
+ERR_RASPWR=16
+ERR_GEOCODEB2=18
+ERR_RAS2=20
 
 # create a TMPDIR in /tmp to use GAMMA
 UUIDTMP="/tmp/`uuidgen`"
@@ -24,9 +31,16 @@ function cleanExit ()
   local msg=""
   case "$retval" in
     $SUCCESS) msg="Processing successfully concluded";;
-    $ERR_PAR) msg="Failed to ingest the Sentinel-1 product with GAMMA";;
-    $ERR_MOSAIC) msg="Failed to create the S1 SLC mosaic";;
+    $ERR_INGEST) msg="Failed to ingest the TerraSAR-X product";;
     $ERR_MULTILOOK) msg="Failed to multi look";;
+    $ERR_RADCM) msg="Failed to rad";;
+    $ERR_GEOCODEB) msg="Failed to geocode back";;
+    $ERR_RAS) msg="Failed to convert raster";;
+    $ERR_GECMAP) msg="Failed to create geocode map";;
+    $ERR_RATIO) msg="Failed to calculate ratio";;
+    $ERR_RASPWR) msg="Failed to generate raster pwr";;
+    $ERR_GEOCODEB2) msg="Failed to geocode back";;
+    $ERR_RAS2) msg="Failed to convert raster";;
   *) msg="Unknown error";;
   esac
 
@@ -67,7 +81,7 @@ function ingest() {
     ${cos} \
     ${TMPDIR}/${polarization}.slc.par \
     ${TMPDIR}/${polarization}.slc \
-    ${polarization} &> ${TMPDIR}/par_TX_SLC_${polarization}.log || return 4 
+    ${polarization} &> ${TMPDIR}/par_TX_SLC_${polarization}.log || return $ERR_INGEST 
   done
 
 }
@@ -199,10 +213,10 @@ function main () {
         ${TMPDIR}/RGB.bmp \
         ${range_samples} \
         ${TMPDIR}/DEM.lookup_table \
-        ${TMPDIR}/RGB.geocoded.bmp \
+        ${TMPDIR}/$( basename ${local_input} )_RGB.geocoded.bmp \
         ${width} - 0 2 &> ${TMPDIR}/geocode_back_RGB.log || return $?
      
-      ciop-publish -m ${TMPDIR}/RGB.geocoded.bmp
+      ciop-publish -m ${TMPDIR}/$( basename ${local_input} )_RGB.geocoded.bmp
 
     } || {
       # it's a single polarization product, process it as single band image
@@ -216,10 +230,10 @@ function main () {
         ${TMPDIR}/GRAY.bmp \
         ${range_samples} \
         ${TMPDIR}/DEM.lookup_table \
-        ${TMPDIR}/${pol_array[0]}.geo.bmp \
-        ${width} - 0 2 &> ${TMPDIR}/geocode_back_${pol_array[0]}.log || return $? - 0 2
+        ${TMPDIR}/$( basename ${local_input} ).geo.bmp \
+        ${width} - 0 2 &> ${TMPDIR}/geocode_back_${pol_array[0]}_geo.log || return $? - 0 2
      
-      ciop-publish -m ${TMPDIR}/${pol_array[0]}.geo.bmp
+      ciop-publish -m ${TMPDIR}/$( basename ${local_input} ).geo.bmp
     }
   done
 
