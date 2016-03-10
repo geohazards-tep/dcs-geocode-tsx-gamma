@@ -36,8 +36,11 @@ TBW
 
 ##### Using the releases
 
-Log on the developer cloud sandbox. Download the rpm package from https://github.com/Terradue/dcs-stamps-ps/releases.
-Install the dowanloaded package by running these commands in a shell:
+Log on the Developer Cloud Sandbox.
+
+Download the rpm package from https://github.com/geohazards-tep/dcs-geocode-tsx-gamma/releases.
+
+Install the downloaded package by running these commands in a shell:
 
 ```bash
 sudo yum -y install dcs-geocode-tsx-gamma-<version>.x86_64.rpm
