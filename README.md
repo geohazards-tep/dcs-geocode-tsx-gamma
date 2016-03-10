@@ -1,5 +1,7 @@
 ## Developer Cloud Sandbox TerraSAR-X geocoding with GAMMA
 
+[![Join the chat at https://gitter.im/geohazards-tep/dcs-geocode-tsx-gamma](https://badges.gitter.im/geohazards-tep/dcs-geocode-tsx-gamma.svg)](https://gitter.im/geohazards-tep/dcs-geocode-tsx-gamma?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
 The GAMMA SAR and Interferometry Software is a collection of programs that allows processing of SAR, interferometric SAR (InSAR) and differential interferometric SAR (DInSAR) data for airborne and spaceborne SAR systems. The software supports the entire processing from raw data to high level products such as digital elevation models, displacement maps,  point target analysis and landuse maps.
 
 ![Sendai (extract of processing result)](https://github.com/geohazards-tep/dcs-geocode-tsx-gamma/blob/master/src/main/media/sendai.png)
@@ -34,8 +36,11 @@ TBW
 
 ##### Using the releases
 
-Log on the developer cloud sandbox. Download the rpm package from https://github.com/Terradue/dcs-stamps-ps/releases.
-Install the dowanloaded package by running these commands in a shell:
+Log on the Developer Cloud Sandbox.
+
+Download the rpm package from https://github.com/geohazards-tep/dcs-geocode-tsx-gamma/releases.
+
+Install the downloaded package by running these commands in a shell:
 
 ```bash
 sudo yum -y install dcs-geocode-tsx-gamma-<version>.x86_64.rpm
