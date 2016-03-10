@@ -2,8 +2,9 @@
 
 The GAMMA SAR and Interferometry Software is a collection of programs that allows processing of SAR, interferometric SAR (InSAR) and differential interferometric SAR (DInSAR) data for airborne and spaceborne SAR systems. The software supports the entire processing from raw data to high level products such as digital elevation models, displacement maps,  point target analysis and landuse maps.
 
-![Sendai (extract of processing result)](dcs-geocode-tsx-gamma/src/main/media/sendai.png)
+![Sendai (extract of processing result)](https://github.com/geohazards-tep/dcs-geocode-tsx-gamma/blob/master/src/main/media/sendai.png)
 
+> Extract of processing result with TSX1_SAR__SSC______SM_S_SRA_20110616T082842_20110616T082850 over Sendai
 
 ## Quick link
  
