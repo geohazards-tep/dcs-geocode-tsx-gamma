@@ -5,9 +5,16 @@ source ${ciop_job_include}
 set -x
 # define the exit codes
 SUCCESS=0
-ERR_PAR=2
-ERR_MOSAIC=3
+ERR_INGEST=2
 ERR_MULTILOOK=4
+ERR_RADCM=6
+ERR_GEOCODEB=8
+ERR_RAS=10
+ERR_GECMAP=12
+ERR_RATIO=14
+ERR_RASPWR=16
+ERR_GEOCODEB2=18
+ERR_RAS2=20
 
 # create a TMPDIR in /tmp to use GAMMA
 UUIDTMP="/tmp/`uuidgen`"
@@ -22,191 +29,235 @@ function cleanExit ()
 {
   local retval=$?
   local msg=""
-  case "$retval" in
-    $SUCCESS) msg="Processing successfully concluded";;
-    $ERR_PAR) msg="Failed to ingest the Sentinel-1 product with GAMMA";;
-    $ERR_MOSAIC) msg="Failed to create the S1 SLC mosaic";;
-    $ERR_MULTILOOK) msg="Failed to multi look";;
-  *) msg="Unknown error";;
+  case "${retval}" in
+    ${SUCCESS}) msg="Processing successfully concluded";;
+    ${ERR_INGEST}) msg="Failed to ingest the TerraSAR-X product";;
+    ${ERR_MULTILOOK}) msg="Failed to multi look";;
+    ${ERR_RADCM}) msg="Failed to rad";;
+    ${ERR_GEOCODEB}) msg="Failed to geocode back";;
+    ${ERR_RAS}) msg="Failed to convert raster";;
+    ${ERR_GECMAP}) msg="Failed to create geocode map";;
+    ${ERR_RATIO}) msg="Failed to calculate ratio";;
+    ${ERR_RASPWR}) msg="Failed to generate raster pwr";;
+    ${ERR_GEOCODEB2}) msg="Failed to geocode back";;
+    ${ERR_RAS2}) msg="Failed to convert raster";;
+    *) msg="Unknown error";;
   esac
 
-  [ "$retval" != "0" ] && ciop-log "ERROR" "Error $retval - $msg, processing aborted" || ciop-log "INFO" "$msg"
-  exit $retval
+  # clean up working space
+  rm -fr ${TMPDIR}
+
+  [ "${retval}" != "0" ] && ciop-log "ERROR" "Error ${retval} - ${msg}, processing aborted" || ciop-log "INFO" "${msg}"
+  exit ${retval}
 }
 
 trap cleanExit EXIT
 
-
-pwd > path
-path=$(awk '{print $1}' path)
-inSLC=${path%/*}"/DATA" 
-
-output=${path%/*}"/OUTPUT" 
-
-inDEM=${path%/*}"/DEM" 
-DEM="bbc9c3e1-ae04-4091-9274-949136e3f762.dem"
-rm path
-
-tsx_header=TSX1_SAR__SSC______SM_D_SRA_20090314T052530_20090314T052538.xml
-hh_cos=IMAGE_HH_SRA_stripFar_007.cos
-vv_cos=IMAGE_VV_SRA_stripFar_007.cos
-
 function ingest() {
  
- local header=$1
+ local input=$1
+ local xpath="//level1Product/productComponents/imageData/polLayer/text()"
+  
+ local leader="$( tar tfz ${input} | grep "\.xml$" | sed 's#.*/\(.*\)#\1#g' | grep "^T.*\.xml" )"
+ local leader_path="$( tar tfz ${input} | grep ${leader} )"
+
+ # extract leader file
+ tar -xzOf ${input} ${leader_path} > ${TMPDIR}/${leader}
+
+ # export the polarization list
+ export POLARIZATION="$( xmllint -xpath ${xpath} ${leader} | sed -r 's/(.{2})/\1 /g' )"
  
- for polarization in $( echo 'HH' 'VV' )
+ for polarization in ${POLARIZATION}
  do
    xpath="//level1Product/productComponents/imageData[polLayer/text()=\"${polarization}\"]/file/location/filename/text()"
-   cos=$( dirname ${header})/$( xmllint -xpath ${xpath} ${header} )
+   cos=$( dirname ${leader})/$( xmllint -xpath ${xpath} ${leader} )
+  
+   cos_path="$( tar tfz ${input} | grep ${cos} )" 
+   # extract the cos .file
+   tar -xzOf ${input} ${cos_path} > ${TMPDIR}/${cos}
+
    par_TX_SLC \
-    ${header} \
+    ${leader} \
     ${cos} \
     ${TMPDIR}/${polarization}.slc.par \
     ${TMPDIR}/${polarization}.slc \
-    ${polarization} &> ${TMPDIR}/par_TX_SLC_${polarization}.log || return 4 
+    ${polarization} &> ${TMPDIR}/par_TX_SLC_${polarization}.log || return ${ERR_INGEST} 
   done
 
 }
 
-ingest \
-  $inSLC/${tsx_header} || exit $?
-
 function mlook() {
   
-  for polarization in $( echo 'HH' 'VV' )
+  for polarization in ${POLARIZATION}
   do
     multi_look \
       ${TMPDIR}/${polarization}.slc \
       ${TMPDIR}/${polarization}.slc.par \
       ${TMPDIR}/${polarization}.mli \
-      ${TMPDIR}/${polarization}.mli.par 6 4 &> ${TMPDIR}/multi_look_${polarization}.log || return 6
+      ${TMPDIR}/${polarization}.mli.par 6 4 &> ${TMPDIR}/multi_look_${polarization}.log || return ${ERR_MULTILOOK}
   done
 }
 
-
-
-
-mlook || exit 6
-
-#multi_look \
-#  $output/HH.slc \
-#  $output/HH.slc.par \
-#  $output/HH.mli \
-#  $output/HH.mli.par 6 4 &> ${output}/multi_look_HH.log || exit 6 
-
-#multi_look \
-#  $output/VV.slc \
-#  $output/VV.slc.par \
-#  $output/VV.mli \
-#  $output/VV.mli.par 6 4 &> ${output}/multi_look_VV.log || exit 7
-
 function radcm() {
 
-  for polarization in $( echo 'HH' 'VV' )
+  for polarization in ${POLARIZATION}
   do
     radcal_MLI \
       ${TMPDIR}/${polarization}.mli \
       ${TMPDIR}/${polarization}.slc.par - \
-      ${TMPDIR}/${polarization}.cmli - 0 0 1 0.0 - &> ${TMPDIR}/radcal_MLI_${polarization}.lop || return 8
+      ${TMPDIR}/${polarization}.cmli - 0 0 1 0.0 - &> ${TMPDIR}/radcal_MLI_${polarization}.lop || return ${ERR_RADCM}
   done
-} 
-
-radcm || exit 8
-
-#radcal_MLI \
-#  $output/HH.mli \
-#  $output/HH.slc.par - \
-#  $output/HH.cmli - 0 0 1 0.0 - &> ${output}/radcal_MLI_HH.log || exit 8
-
-#radcal_MLI \
-#  $output/VV.mli \
-#  $output/VV.slc.par - \
-#  $output/VV.cmli - 0 0 1 0.0 - &> ${output}/radcal_MLI_VV.log || exit 9
-
-gec_map \
-  ${TMPDIR}/HH.mli.par - \
-  ${TMPDIR}/${DEM}.par 0.0 \
-  ${TMPDIR}/DEM.dem_seg.par \
-  ${TMPDIR}/DEM.lookup_table 20 20 &> ${TMPDIR}/gec_map.log || exit 10
-
-width=$( cat $output/DEM.dem_seg.par | grep width | tr  -s " " | cut -d " " -f 2 )
-range_samples=$( cat $output/HH.mli.par | grep range_samples | tr  -s " " | cut -d " " -f 2 )
+}
 
 function geocodeb() {
- 
-  local r_samples=$1
-  local w=$2 
 
-  for polarization in $( echo 'HH' 'VV' )
+  local r_samples=$1
+  local w=$2
+
+  for polarization in ${POLARIZATION}
   do
     geocode_back \
       ${TMPDIR}/${polarization}.cmli \
       ${r_samples} \
       ${TMPDIR}/DEM.lookup_table \
-      ${TMPDIR}/${polarization}.cmli.geocoded ${w} - 0 0 &> ${TMPDIR}/geocode_back_${polarization}.log || return 10
+      ${TMPDIR}/${polarization}.cmli.geocoded ${w} - 0 0 &> ${TMPDIR}/geocode_back_${polarization}.log || return ${ERR_GEOCODEB}
    done
 
 }
-
-geocodeb ${range_samples} ${width} || exit 10
-
-#geocode_back \
-#  $output/HH.cmli \
-#  ${range_samples} \
-#  $output/DEM.lookup_table \
-#  $output/HH.cmli.geocoded ${width} - 0 0 &> ${output}/geocode_back_HH.log || exit 11
-
-#geocode_back \
-#  $output/VV.cmli \
-#  ${range_samples} \
-#  $output/DEM.lookup_table \
-#  $output/VV.cmli.geocoded ${width} - 0 0 &> ${output}/geocode_back_VV.log  || exit 12
-
-ratio ${TMPDIR}/HH.cmli ${TMPDIR}/VV.cmli ${TMPDIR}/HHVV ${range_samples} &> ${TMPDIR}/ratio.log || exit 13
 
 function ras() {
 
   local r_samples=$1
 
-  for polarization in $( echo 'HH' 'VV' )
+  for polarization in ${POLARIZATION}
   do
     raspwr \
       ${TMPDIR}/${polarization}.cmli \
       ${range_samples} \
       1 0 1 1 - - - \
-      ${TMPDIR}/${polarization}.cmli.ras &> ${TMPDIR}/raspwr_${polarization}.log
+      ${TMPDIR}/${polarization}.cmli.ras &> ${TMPDIR}/raspwr_${polarization}.log || return ${ERR_RASPWR}
   done
 }
 
-ras
-#raspwr $output/HH.cmli \
-#  ${range_samples} \
-#  1 0 1 1 - - - \
-#  $output/HH.cmli.ras  &> ${output}/raspwr_HH.log || exit 14
+function main () {
 
-#raspwr \
-#  $output/VV.cmli \
-#  ${range_samples} \
-#  1 0 1 1 - - - \
-#  $output/VV.cmli.ras &> ${output}/raspwr_VV.log || exit 15
+  cd ${TMPDIR}
 
-raspwr \
-  ${TMPDIR}/HHVV \
-  ${range_samples} \
-  1 0 1 1 - - - \
-  ${TMPDIR}/HHVV.cmli.ras &> ${TMPDIR}/raspwr_HHVV.log || exit 16
+  while read input
+  do
+ 
+    [[ ${input} == *"response.xml"* ]] && continue 
+  
+    ciop-log "INFO" "Retrieve $( basename ${input} )" 
+    enclosure="$( opensearch-client ${input} enclosure )"
+    local_input="$( ciop-copy -z -o $TMPDIR ${enclosure} )"
 
-ras_to_rgb \
-  ${TMPDIR}/HH.cmli.ras \
-  ${TMPDIR}/VV.cmli.ras \
-  ${TMPDIR}/HHVV.cmli.ras \
-  ${TMPDIR}/RGB.bmp &> ${TMPDIR}/ras_to_rgb.log  || exit 17 
+    ciop-log "INFO" "Ingesting TSX"  
+    ingest \
+      ${local_input} || return $?
 
-geocode_back \
-  ${TMPDIR}/RGB.bmp \
-  ${range_samples} \
-  ${TMPDIR}/DEM.lookup_table \
-  ${TMPDIR}/RGB.geocoded.utm.bmp \
-  ${width} - 0 2 &> ${TMPDIR}/geocode_back_RGB.log  || exit 18
+    ciop-log "INFO" "Calculate a multi-look intensity (MLI) image from an SLC image"
+    mlook || return $? 
 
+    ciop-log "INFO" "Radiometric calibration for multi-look intensity (MLI) data"
+    radcm || return $?
+
+    read -a pol_array <<<$POLARIZATION
+    ciop-log "INFO" "Calculate geocoding lookup table for ellipsoid correction of slant-range images" 
+    
+    dem_seg_par="$( dirname ${DEM_PAR} )/DEM.dem_seg.par"
+ 
+    gec_map \
+      ${TMPDIR}/${pol_array[0]}.mli.par - \
+      ${DEM_PAR} 0.0 \
+      ${dem_seg_par} \
+      ${TMPDIR}/DEM.lookup_table 20 20 &> ${TMPDIR}/gec_map.log || return ${ERR_GECMAP}
+
+      width=$( cat ${dem_seg_par} | grep width | tr  -s " " | cut -d " " -f 2 )
+      range_samples=$( cat ${TMPDIR}/${pol_array[0]}.mli.par | grep range_samples | tr  -s " " | cut -d " " -f 2 )
+
+    ciop-log "INFO" "Geocoding of image data using lookup table values"
+      geocodeb ${range_samples} ${width} || return ${ERR_GEOCODEB2}
+
+    [ ${#pol_array[@]} == 2 ] && {   
+      
+      ciop-log "INFO" "Estimate ratio of image data values"
+      ratio \
+        ${TMPDIR}/${pol_array[0]}.cmli \
+        ${TMPDIR}/${pol_array[1]}.cmli \
+        ${TMPDIR}/${pol_array[0]}${pol_array[1]} \
+        ${range_samples} &> ${TMPDIR}/ratio.log || return ${ERR_RATIO}
+    }
+
+    ciop-log "INFO" "Generate 8-bit greyscale raster image of intensity data"
+    ras
+
+    [ ${#pol_array[@]} == 2 ] && {
+      # dual polarization, process an RGB image
+      ciop-log "INFO" "Generate 8-bit greyscale raster image of intensity data"
+      raspwr \
+        ${TMPDIR}/${pol_array[0]}${pol_array[1]} \
+        ${range_samples} \
+        1 0 1 1 - - - \
+        ${TMPDIR}/${pol_array[0]}${pol_array[1]}.cmli.ras &> ${TMPDIR}/raspwr_${pol_array[0]}${pol_array[1]}.log || return ${ERR_RASPWR}
+
+      ciop-log "INFO" "Combine 3 raster images into a composite 24-bit RGB"
+      ras_to_rgb \
+        ${TMPDIR}/${pol_array[0]}.cmli.ras \
+        ${TMPDIR}/${pol_array[1]}.cmli.ras \
+        ${TMPDIR}/${pol_array[0]}${pol_array[1]}.cmli.ras \
+        ${TMPDIR}/RGB.bmp &> ${TMPDIR}/ras_to_rgb.log || return ${ERR_RAS}
+
+      ciop-log "INFO" "Geocoding of image data using lookup table values"
+      geocode_back \
+        ${TMPDIR}/RGB.bmp \
+        ${range_samples} \
+        ${TMPDIR}/DEM.lookup_table \
+        ${TMPDIR}/$( basename ${local_input} )_RGB.geocoded.bmp \
+        ${width} - 0 2 &> ${TMPDIR}/geocode_back_RGB.log || return ${ERR_GEOCODEB2}
+      
+      ciop-log "INFO" "Publish geocoded bmp" 
+      ciop-publish -m ${TMPDIR}/$( basename ${local_input} )_RGB.geocoded.bmp
+
+    } || {
+      # it's a single polarization product, process it as single band image
+      ciop-log "INFO" "Multi-looking, left/right flip, and format conversion"
+      ras_ras \
+        ${TMPDIR}/${pol_array[0]}.cmli.ras \
+        ${TMPDIR}/GRAY.bmp &> ${TMPDIR}/ras_to_ras.log || return $?
+      
+      ciop-log "INFO" "Geocoding of image data using lookup table values"
+      geocode_back \
+        ${TMPDIR}/GRAY.bmp \
+        ${range_samples} \
+        ${TMPDIR}/DEM.lookup_table \
+        ${TMPDIR}/$( basename ${local_input} ).geo.bmp \
+        ${width} - 0 2 &> ${TMPDIR}/geocode_back_${pol_array[0]}_geo.log || return ${ERR_RAS2}
+     
+      ciop-log "INFO" "Publish geocoded bmp" 
+      ciop-publish -m ${TMPDIR}/$( basename ${local_input} ).geo.bmp
+    }
+  done
+
+}
+
+ciop-log "INFO" "Retrieving DEM"
+# retrieve the DEM
+
+mkdir -p ${TMPDIR}/workdir/dem
+# browse the DEM generation node results
+wps_result="$( ciop-browseresults -r ${CIOP_WF_RUN_ID} -j node_dem -w | tr -d '\r' | tr '\n' ';' | cut -d ";" -f 1)"
+
+# extract the result URL
+curl -L -o ${TMPDIR}/workdir/dem/dem.tgz "${wps_result}" 2> /dev/null
+tar xzf ${TMPDIR}/workdir/dem/dem.tgz -C ${TMPDIR}/workdir/dem/
+
+# export DEM and DEM.par path
+export DEM="$( find $TMPDIR/workdir/dem -name "*.dem" )"
+export DEM_PAR="$( find $TMPDIR/workdir/dem -name "*.dem.par" )"
+
+# GAMMA wants to write here, set the rights 
+chmod -R 777 ${TMPDIR}/workdir
+
+# invoke main function
+cat | main || exit $?

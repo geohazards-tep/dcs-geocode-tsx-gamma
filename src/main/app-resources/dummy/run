@@ -1,0 +1,6 @@
+#! /bin/bash
+
+# source the ciop functions (e.g. ciop-log)
+source ${ciop_job_include}
+
+cat | ciop-publish -s

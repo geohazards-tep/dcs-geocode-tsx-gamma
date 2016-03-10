@@ -9,13 +9,49 @@
       <defaultJobconf>
       </defaultJobconf>
     </jobTemplate>
+    <jobTemplate id="dem" jobType="wps_client">
+        <defaultParameters>
+        	<parameter id="format">gamma</parameter>	
+        </defaultParameters>
+        <defaultJobconf>
+          <property id="ogc.wps.access.point">http://dem.terradue.int:8080/wps/WebProcessingService</property>
+          <property id="ogc.wps.process.identifier">com.terradue.wps_oozie.process.OozieAbstractAlgorithm</property>
+          <property id="ogc.wps.storeExecuteResponse">true</property>
+          <property id="ogc.wps.status">true</property>
+          <property id="mapred.task.timeout">9900000000</property>
+          <property id="ciop.job.max.tasks">1</property>
+        </defaultJobconf>
+    </jobTemplate>
+        <jobTemplate id="dummy">
+      <streamingExecutable>/application/dummy/run</streamingExecutable>
+      <defaultParameters>
+      </defaultParameters>
+      <defaultJobconf>
+        <property id="ciop.job.max.tasks">1</property>
+      </defaultJobconf>
+    </jobTemplate>
   </jobTemplates>
   <workflow id="geocode_tsx_gamma" title="TerraSAR-X geocoding with GAMMA" abstract="TBW">
     <workflowVersion>1.0</workflowVersion>
-    <node id="node_geocode">
-      <job id="geocode" />
+    <node id="node_dummy">
+      <job id="dummy" />
       <sources>
-        <source scope="runtime" id="tsx_ref" title="TerraSAR-X SLC product catalogue entry(ies)" abstract="Define the TerraSAR-X product(s). The product(s) is passed by references to catalogue entries" refid="string:list">https://data2.terradue.com/eop/scihub/dataset/search?uid=S1A_IW_SLC__1SSV_20141003T122533_20141003T122600_002665_002F81_62D8</source>
+        <source id="Level0_ref" title="TerraSAR-X SLC product catalogue entry" abstract="Define the TerraSAR-Xproduct. The product is passed with a reference its catalogue entry" refid="string:list" scope="runtime">https://data2.terradue.com/eop/va4-terrasar-x/dataset/search?uid=TSX1_SAR__SSC______SM_S_SRA_20110616T082842_20110616T082850</source>
+      </sources>
+      <parameters />
+    </node>
+    <node id="node_dem">
+      <job id="dem" />
+      <sources>
+        <source id="Level0_ref" title="TerraSAR-X SLC product catalogue entry" abstract="Define the TerraSAR-X product The product is passed with a reference its catalogue entry" refid="string:list" scope="runtime">https://data2.terradue.com/eop/va4-terrasar-x/dataset/search?uid=TSX1_SAR__SSC______SM_S_SRA_20110616T082842_20110616T082850</source>
+      </sources>
+      <parameters />
+    </node>
+    <node id="node_geocode">
+     <job id="geocode" />
+     <sources>
+        <source refid="wf:node">node_dem</source>
+        <source refid="wf:node">node_dummy</source>
       </sources>
       <parameters>
       </parameters>
