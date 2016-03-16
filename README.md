@@ -51,10 +51,10 @@ sudo yum -y install dcs-geocode-tsx-gamma-<version>.x86_64.rpm
 Log on the Developer Cloud Sandbox and run these commands in a shell:
 
 ```bash
-
 git clone git@github.com:geohazards-tep/dcs-geocode-tsx-gamma.git
 cd dcs-geocode-tsx-gamma
 mvn install
+sudo yum install libxml2-2.9.0-3.3
 ```
 
 ### <a name="submit"></a>Submitting the workflow

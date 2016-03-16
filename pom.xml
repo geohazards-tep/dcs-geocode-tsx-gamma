@@ -110,7 +110,8 @@
             <provide>${project.artifactId}</provide>
           </provides>
           <requires>
-					</requires>
+            <require>libxml2 &gt;= 2.9.0</require>
+	  </requires>
           <needarch>true</needarch>
         </configuration>
       </plugin>
