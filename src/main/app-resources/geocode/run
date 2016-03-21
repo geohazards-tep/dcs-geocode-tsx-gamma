@@ -16,7 +16,6 @@ ERR_RASPWR=16
 ERR_GEOCODEB2=18
 ERR_RAS2=20
 
-
 # add a trap to exit gracefully
 function cleanExit ()
 {
@@ -54,13 +53,8 @@ function setup_gamma() {
   export TMPDIR=${UUIDTMP}
   chmod 777 ${UUIDTMP}
 
-  GAMMA=/opt/gamma
+  export PATH=/opt/gamma/DIFF/bin:/opt/gamma/DISP/bin/:/opt/gamma/ISP/bin:/opt/gamma/LAT/bin:$PATH
 
-  export DIFF_BIN=${GAMMA}/DIFF/bin
-  export DISP_BIN=${GAMMA}/DISP/bin
-  export ISP_BIN=${GAMMA}/ISP/bin
-  export LAT_BIN=${GAMMA}/LAT/bin
-    
 }
 
 function ingest() {
@@ -86,7 +80,7 @@ function ingest() {
    # extract the cos .file
    tar -xzOf ${input} ${cos_path} > ${TMPDIR}/${cos}
 
-   ${ISP_BIN}/par_TX_SLC \
+   par_TX_SLC \
     ${leader} \
     ${cos} \
     ${TMPDIR}/${polarization}.slc.par \
@@ -100,7 +94,7 @@ function mlook() {
   
   for polarization in ${POLARIZATION}
   do
-    ${ISP_BIN}/multi_look \
+    multi_look \
       ${TMPDIR}/${polarization}.slc \
       ${TMPDIR}/${polarization}.slc.par \
       ${TMPDIR}/${polarization}.mli \
@@ -112,7 +106,7 @@ function radcm() {
 
   for polarization in ${POLARIZATION}
   do
-    ${ISP_BIN}/radcal_MLI \
+    radcal_MLI \
       ${TMPDIR}/${polarization}.mli \
       ${TMPDIR}/${polarization}.slc.par - \
       ${TMPDIR}/${polarization}.cmli - 0 0 1 0.0 - &> ${TMPDIR}/radcal_MLI_${polarization}.lop || return ${ERR_RADCM}
@@ -126,7 +120,7 @@ function geocodeb() {
 
   for polarization in ${POLARIZATION}
   do
-    ${DIFF_BIN}/geocode_back \
+    geocode_back \
       ${TMPDIR}/${polarization}.cmli \
       ${r_samples} \
       ${TMPDIR}/DEM.lookup_table \
@@ -141,7 +135,7 @@ function ras() {
 
   for polarization in ${POLARIZATION}
   do
-    ${DISP_BIN}/raspwr \
+    raspwr \
       ${TMPDIR}/${polarization}.cmli \
       ${range_samples} \
       1 0 1 1 - - - \
@@ -177,22 +171,22 @@ function main () {
     
     dem_seg_par="$( dirname ${DEM_PAR} )/DEM.dem_seg.par"
  
-    ${DIFF_BIN}/gec_map \
+    gec_map \
       ${TMPDIR}/${pol_array[0]}.mli.par - \
       ${DEM_PAR} 0.0 \
       ${dem_seg_par} \
       ${TMPDIR}/DEM.lookup_table 20 20 &> ${TMPDIR}/gec_map.log || return ${ERR_GECMAP}
 
-    width=$( cat ${dem_seg_par} | grep width | tr  -s " " | cut -d " " -f 2 )
-    range_samples=$( cat ${TMPDIR}/${pol_array[0]}.mli.par | grep range_samples | tr  -s " " | cut -d " " -f 2 )
+      width=$( cat ${dem_seg_par} | grep width | tr  -s " " | cut -d " " -f 2 )
+      range_samples=$( cat ${TMPDIR}/${pol_array[0]}.mli.par | grep range_samples | tr  -s " " | cut -d " " -f 2 )
 
     ciop-log "INFO" "Geocoding of image data using lookup table values"
-    geocodeb ${range_samples} ${width} || return ${ERR_GEOCODEB2}
+      geocodeb ${range_samples} ${width} || return ${ERR_GEOCODEB2}
 
     [ ${#pol_array[@]} == 2 ] && {   
       
       ciop-log "INFO" "Estimate ratio of image data values"
-      ${LAT_BIN}/ratio \
+      ratio \
         ${TMPDIR}/${pol_array[0]}.cmli \
         ${TMPDIR}/${pol_array[1]}.cmli \
         ${TMPDIR}/${pol_array[0]}${pol_array[1]} \
@@ -205,21 +199,21 @@ function main () {
     [ ${#pol_array[@]} == 2 ] && {
       # dual polarization, process an RGB image
       ciop-log "INFO" "Generate 8-bit greyscale raster image of intensity data"
-      ${DISP_BIN}/raspwr \
+      raspwr \
         ${TMPDIR}/${pol_array[0]}${pol_array[1]} \
         ${range_samples} \
         1 0 1 1 - - - \
         ${TMPDIR}/${pol_array[0]}${pol_array[1]}.cmli.ras &> ${TMPDIR}/raspwr_${pol_array[0]}${pol_array[1]}.log || return ${ERR_RASPWR}
 
       ciop-log "INFO" "Combine 3 raster images into a composite 24-bit RGB"
-      ${LAT_BIN}/ras_to_rgb \
+      ras_to_rgb \
         ${TMPDIR}/${pol_array[0]}.cmli.ras \
         ${TMPDIR}/${pol_array[1]}.cmli.ras \
         ${TMPDIR}/${pol_array[0]}${pol_array[1]}.cmli.ras \
         ${TMPDIR}/RGB.bmp &> ${TMPDIR}/ras_to_rgb.log || return ${ERR_RAS}
 
       ciop-log "INFO" "Geocoding of image data using lookup table values"
-      ${DIFF_BIN}/geocode_back \
+      geocode_back \
         ${TMPDIR}/RGB.bmp \
         ${range_samples} \
         ${TMPDIR}/DEM.lookup_table \
@@ -232,12 +226,12 @@ function main () {
     } || {
       # it's a single polarization product, process it as single band image
       ciop-log "INFO" "Multi-looking, left/right flip, and format conversion"
-      ${LAT_BIN}/ras_ras \
+      ras_ras \
         ${TMPDIR}/${pol_array[0]}.cmli.ras \
         ${TMPDIR}/GRAY.bmp &> ${TMPDIR}/ras_to_ras.log || return $?
       
       ciop-log "INFO" "Geocoding of image data using lookup table values"
-      ${DIFF_BIN}/geocode_back \
+      geocode_back \
         ${TMPDIR}/GRAY.bmp \
         ${range_samples} \
         ${TMPDIR}/DEM.lookup_table \
@@ -251,7 +245,7 @@ function main () {
 
 }
 
-# setup the GAMMA specific environment
+# setup GAMMA specific environment
 setup_gamma
 
 ciop-log "INFO" "Retrieving DEM"
