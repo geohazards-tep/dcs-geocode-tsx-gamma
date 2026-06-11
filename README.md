@@ -1,3 +1,9 @@
+
+**Archive notice**
+
+This repository is part of the historical GEP GitHub archive and is not actively maintained.
+Current GEP development and service integration take place at https://git.geohazards-tep.eu/
+
 ## Developer Cloud Sandbox TerraSAR-X geocoding with GAMMA
 
 [![Join the chat at https://gitter.im/geohazards-tep/dcs-geocode-tsx-gamma](https://badges.gitter.im/geohazards-tep/dcs-geocode-tsx-gamma.svg)](https://gitter.im/geohazards-tep/dcs-geocode-tsx-gamma?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
